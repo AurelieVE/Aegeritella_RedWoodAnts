@@ -1,0 +1,521 @@
+####   INDEX TABLE (Statistical analysis)
+### Load required packages 
+### Load dataset
+### 1. Visualization - head width vs. infection status (combined plot) in red wood ants ###
+### 2. Model 1 - infection status (binary) ~ head width in red wood ants ###
+### 3. Visualization - head width vs. total number of bulbils in infected red wood ants ###
+### 4. Model 2 - total number of bulbils (negative binomial) ~ head width in red wood ants ###
+### 5. Visualization - infection density across different body parts in infected red wood ants ###
+### 6. Model 3 - total number of bulbils (Poisson) ~ head width * body part in infected red wood ants ###
+
+### Load required packages
+```{r}
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(lme4)
+library(lmerTest)
+library(fmsb)
+library(tidyr) 
+library(DHARMa)
+library(RVAideMemoire)
+library(nlme)
+library(effects)
+library(car)
+library(glmmTMB)
+library(emmeans)
+library(multcomp)
+library(geepack)
+library(ARTool)
+library(permuco)
+library(tidyverse)
+library(patchwork)
+library(visreg)
+library(ggeffects)
+library(cowplot)
+library(sjPlot)
+```   
+
+### Load dataset
+```{r}
+df <- read_excel("Primary data_Aegeritella_AVE.xlsx", 
+    sheet = "Individuals (fungi)")
+```  
+
+###########################################################################################
+### 1. Visualization - head width vs. infection status (combined plot) in red wood ants ###
+###########################################################################################
+
+```{r}
+
+# Filter the Formica rufa group
+
+df_rufa_1 <- df %>%
+  filter(Host == "Formica_rufa_group")
+
+# Prepare x-axis breaks
+
+unique_hw <- sort(unique(df_rufa_1$Head_width_mm)) # All unique head-width values
+breaks_hw <- unique_hw[seq(1, length(unique_hw), by = 2)]  # Select every 2 unique head-width values for readability
+
+
+# 1.a. Top panel - logistic curve: head width vs. infection status
+##################################################################
+
+p1 <- ggplot(df_rufa_1, aes(x = Head_width_mm, y = Infection_status)) +
+  geom_jitter(alpha = 0.1, size = 0.8, width = 0.1 ,height = 0.05) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), 
+              se = TRUE, color = "darkred", linewidth = 0.8) +
+  scale_y_continuous(breaks = c(0, 1), limits = c(-0.1, 1.1)) +
+  theme_bw() +
+  theme(
+    plot.title = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    plot.margin = margin(2, 10, 2, 10)
+  ) +
+  ylab("Infection status")
+
+
+# 1.b. Bottom panel - counts per head width and infection status
+################################################################
+
+df_counts_rufa_1 <- df_rufa_1 %>%
+  group_by(Head_width_mm, Infection_status) %>%
+  summarise(Count = n(), .groups = "drop")
+
+p2 <- ggplot(df_counts_rufa_1, aes(x = as.factor(Head_width_mm), y = Count, fill = factor(Infection_status))) +
+  geom_bar(stat = "identity", width = 0.75) +  
+  scale_fill_manual(values = c("0" = "grey75", "1" = "grey20"), 
+                    labels = c("0" = "Uninfected (0)", "1" = "Infected (1)")) +
+  scale_x_discrete(breaks = breaks_hw) +
+  theme_bw() +
+  theme(
+    plot.title = element_blank(),
+    plot.margin = margin(2, 10, 2, 10) 
+  ) +
+  xlab("Head width (mm)") +
+  ylab("Number of individuals") +
+  guides(fill = guide_legend(title = "Status"))
+
+
+# Combine panels using patchwork
+
+p1 / p2 + plot_layout(heights = c(3, 3.5))
+
+``` 
+
+############################################################################
+### 2. Model 1 - infection status (binary) ~ head width in red wood ants ###
+############################################################################
+
+```{r}
+
+# Fit binomial GLMM
+
+Model_Frufa_1 <- glmer(Infection_status ~ Head_width_mm + (1 | Nest_ID), data = df[df$Host=="Formica_rufa_group",], family = binomial)
+
+hist(residuals(Model_Frufa_1)) # Check residuals
+simulationOutput <- simulateResiduals(fittedModel = Model_Frufa_1, plot = T) 
+
+overdisp.glmer(Model_Frufa_1) # Check overdispersion 
+
+Anova(Model_Frufa_1) # Anova
+
+``` 
+###########################################################################################
+### 3. Visualization - head width vs. total number of bulbils in infected red wood ants ###
+###########################################################################################
+
+```{r}
+
+# Filter the Formica rufa group
+
+df_rufa_2 <- df %>%
+  filter(Host == "Formica_rufa_group")
+
+
+ggplot(df_rufa_2 %>% filter(Infection_status == 1), aes(x = Head_width_mm, y = log(Total))) +
+  geom_jitter(alpha = 0.1, size = 0.8, width = 0.1 ,height = 0.05)  +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred") +
+  labs(title = "Head Width vs. Infection Density",
+       x = "Head width (mm)", 
+       y = "log(Total number of bulbils)") +
+  theme_bw() + 
+  theme(
+    plot.title = element_blank()
+  )
+
+``` 
+
+
+##############################################################################################
+### 4. Model 2 - total number of bulbils (negative binomial) ~ head width in red wood ants ###
+##############################################################################################
+
+```{r}
+
+# Filter infected individuals 
+
+df_infected_2 <- df %>%
+  filter(Infection_status == 1)
+
+# Fit negative binomial GLMM
+
+Model_Frufa_2 <- glmer.nb(Total ~ Head_width_mm + (1 | Nest_ID), data = df_infected_2[df_infected_2$Host=="Formica_rufa_group",])
+
+summary(Model_Frufa_2)
+
+hist(residuals(Model_Frufa_2)) # Check residuals
+simulationOutput <- simulateResiduals(fittedModel = Model_Frufa_2, plot = T) 
+
+overdisp.glmer(Model_Frufa_2) # Check overdispersion
+
+Anova(Model_Frufa_2) # Anova
+
+```
+
+##################################################################################################
+### 5. Visualization - infection density across different body parts in infected red wood ants ###
+##################################################################################################
+
+```{r}
+
+# Filter infected individuals of Formica rufa group
+
+df_infected_rufa_5 <- df %>%
+  filter(Infection_status == 1, Host == "Formica_rufa_group")
+
+# Pivot to long format
+
+long_df_infected_rufa_5 <- df_infected_rufa_5 %>%
+  pivot_longer(cols = c("Antennae", "Head", "Thorax", "Petiole", "Gaster", "1st_Legs", "2nd_Legs", "3rd_Legs"),
+    names_to = "Body_part",
+    values_to = "Wart_count"
+  ) %>%  #Zet Body_Part om in factor met de juiste volgorde
+  mutate(Body_part = factor(Body_part, levels = c(
+    "Antennae", "Head", "Thorax", "Petiole", "Gaster", "1st_Legs", "2nd_Legs", "3rd_Legs"
+  )))
+
+
+ggplot(long_df_infected_rufa_5, aes(x = Body_part, y = sqrt(Wart_count))) +
+  geom_jitter(alpha = 0.1, size = 0.8, width = 0.2 ,height = 0.1)  + 
+  stat_summary(fun = mean, geom = "crossbar", width = 0.9, fatten = 0.5, color = "darkred", size = 1) + 
+  theme_bw() +
+  labs(x = "Body part", y = "√Number of bulbils") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0.5)) + 
+  scale_x_discrete(labels = c("Antennae" = "Antennae", "Head" = "Head", "Thorax" = "Thorax", "Petiole" = "Petiole", "Gaster" = "Gaster", "1st_Legs" = "1st Legs", "2nd_Legs" = "2nd Legs", "3rd_Legs" = "3rd Legs")) + 
+  theme(
+    plot.title = element_blank()
+  )
+
+``` 
+
+#########################################################################################################
+### 6. Model 3 - total number of bulbils (Poisson) ~ head width * body part in infected red wood ants ###
+#########################################################################################################
+
+```{r}
+
+# Filter infected individuals of Formica rufa group
+
+df_infected_rufa_5 <- df %>%
+  filter(Infection_status == 1, Host == "Formica_rufa_group")
+  
+# Pivot to long format
+
+long_df_infected_rufa_5 <- df_infected_rufa_5 %>%
+  pivot_longer(cols = c(Antennae, Head, Thorax, Petiole, Gaster, `1st_Legs`, `2nd_Legs`, `3rd_Legs`),
+               names_to = "Body_Part", 
+               values_to = "Wart_Count") %>% # Zet Body_Part om in factor met de juiste volgorde
+  mutate(Body_Part = factor(Body_Part, levels = c("Antennae", "Head", "Thorax", "Petiole", "Gaster", "1st_Legs", "2nd_Legs", "3rd_Legs")))
+
+# Subset to "1st_Legs", "2nd_Legs", "3rd_Legs" 
+
+df_selected_rufa_5 <- long_df_infected_rufa_5[long_df_infected_rufa_5$Body_Part %in% c("1st_Legs", "2nd_Legs", "3rd_Legs"), ]
+
+
+# Fit Poisson GLMM
+
+Model_Frufa_5 <- glmer((Wart_Count) ~ Body_Part * Head_width_mm + (1 | Nest_ID) + (1|Worker_ID: Nest_ID), 
+                    data = df_selected_rufa_5,
+                    glmerControl(optimizer = "bobyqa"), family = poisson)
+
+summary(Model_Frufa_5)
+
+
+simulationOutput <- simulateResiduals(fittedModel = Model_Frufa_5, plot = T) # Check residuals
+
+overdisp.glmer(Model_Frufa_5) # Check overdispersion 
+
+Anova(Model_Frufa_5) # Anova
+
+
+df_selected_rufa_5$Wart_Count_sqrt <- sqrt(df_selected_rufa_5$Wart_Count)
+df_selected_rufa_5$group <- df_selected_rufa_5$Body_Part
+
+
+# Plot 
+
+plot_model(Model_Frufa_5, 
+           type = "pred", 
+           terms = c("Head_width_mm", "Body_Part"),  
+           transform = "response",   
+           show.data = FALSE,           
+           colors = "darkred") +    
+  labs(x = "Head width (mm)", y = "√ Number of bulbils") +
+  geom_jitter(data = df_selected_rufa_5, aes(x = Head_width_mm, y = Wart_Count_sqrt), inherit.aes = FALSE, 
+              alpha = 0.15, size = 0.8, width = 0.05 ,height = 0.05) + 
+  facet_wrap(~ group, labeller = labeller(group = c(
+    "1st_Legs" = "1st Legs",
+    "2nd_Legs" = "2nd Legs",
+    "3rd_Legs" = "3rd Legs"
+  ))) +
+  theme_bw() + 
+  scale_y_continuous(limits = c(0, 5)) +
+  theme(
+    strip.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "grey95"),
+    plot.title = element_blank(),
+    legend.position = "none"  
+  )
+
+  
+# Post-hoc pairwise comparisons 
+
+emmeans(Model_Frufa_5, pairwise ~ Body_Part)
+
+# Check outliers
+
+outlier_indices <- which(simulationOutput$scaledResiduals < 0.05 | simulationOutput$scaledResiduals > 0.95)
+df_outliers_rufa_5 <- df_selected_rufa_5[outlier_indices, ]
+
+table(df_outliers_rufa_5$Nest_ID)
+
+# Delete outliers
+
+df_selected_rufa_5 <- df_selected_rufa_5 %>%
+  filter(!Nest_ID %in% c("AEG_FP_3", "AEG_FP_4", "AEG_FP_30","AEG_FP_31"))
+
+``` 
+
+
+### INDEX TABLE (Spatial analysis)
+### Load required packages 
+### Load dataset
+### 1. Model 1 - infection frequency vs. nest size (no spatial analysis) in red wood ants + Moran's I ###
+### 2. Model 2 - infection frequency vs. nest size (spatial analysis) in red wood ants + Moran's I  ###
+### 3. Model 3 - control: is nest size itself spatially structured? ###
+
+
+# Load required packages 
+```{r}
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(lme4)
+library(lmerTest)
+library(fmsb)
+library(tidyr) 
+library(DHARMa)
+library(nlme)
+library(ggmap)
+library(effects)
+library(spaMM)
+library(spdep)
+library(visreg)
+library(DHARMa)
+library(sjPlot)
+library(multcomp)
+```   
+
+# Load dataset
+```{r}
+dstat <- read_excel("Primary data_Aegeritella_AVE.xlsx", 
+    sheet = "Within colonies (fungi)")
+```  
+
+# Moran's I for spatial autocorrelation
+# Observed Moran's I: a positive value suggests positive spatial autocorrelation. 
+#                     > Nearby residuals are more similar than would be expected by chance.
+# Highly significant p-value. Reject the null hypothesis of no spatial autocorrelation.
+#Significant t-values (> |2|) 
+
+
+#########################################################################################################
+### 1. Model 1 - infection frequency vs. nest size (no spatial analysis) in red wood ants + Moran's I ###
+#########################################################################################################
+
+```{r}
+
+# Remove rows without nest size values
+
+dstat_filtered_2 <- dstat %>%
+  filter(!is.na(A_m2))
+
+
+# Fit GLM without spatial correlation 
+
+GLM_prop_A <- glm(cbind(Infected, Uninfected) ~ A_m2, 
+                 family = binomial(),
+                 data = dstat_filtered_2)
+
+summary(GLM_prop_A)
+
+dstat_filtered_2$residuals <- residuals(GLM_prop_A, type = "pearson") # Check residuals
+
+
+# Moran's I test
+
+coords1 <- as.matrix(dstat_filtered_2[, c("x", "y")])
+nb1 <- knn2nb(knearneigh(coords1, k = 4)) 
+lw1 <- nb2listw(nb1, style = "W")
+
+moran.test(dstat_filtered_2$residuals, lw1)
+
+
+# AIC for comparison
+
+AIC(GLM_prop_A)
+```
+
+
+######################################################################################################
+### 2. Model 2 - infection frequency vs. nest size (spatial analysis) in red wood ants + Moran's I ###
+######################################################################################################
+
+```{r}
+
+# Remove rows without nest size values
+
+dstat_filtered_3 <- dstat %>%
+  filter(!is.na(A_m2))
+
+
+# Fit GLM with spatial correlation 
+
+spaMM_prop_A <- fitme(cbind(Infected, Uninfected) ~ A_m2 + Matern(1|x + y), 
+                     family = binomial(),
+                     data = dstat_filtered_3)
+
+summary(spaMM_prop_A)
+
+plot_effects(spaMM_prop_A, focal_var="A_m2", 
+             xlab = "Nest size (m²)", 
+             ylab = "Infection frequency", 
+             rgb.args  = col2rgb("darkred")) 
+
+
+hist(residuals(spaMM_prop_A)) # Check residuals
+
+# Residuals and fitted values
+
+dstat_filtered_3$residuals <- residuals(spaMM_prop_A)
+dstat_filtered_3$fitted_values <- fitted(spaMM_prop_A)
+
+# Plot residuals vs. fitted values
+
+plot(dstat_filtered_3$residuals ~ dstat_filtered_3$fitted_values, 
+     main = "Residuals vs. Fitted values",
+     xlab = "Fitted values", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+
+simulationOutput <- simulateResiduals(fittedModel = spaMM_prop_A, plot = T) 
+testDispersion(simulationOutput)  # Check overdispersion
+
+
+# Moran's I test. 
+
+coords2 <- as.matrix(dstat_filtered_3[, c("x", "y")])
+nb2 <- knn2nb(knearneigh(coords2, k = 4)) 
+lw2 <- nb2listw(nb2, style = "W")
+
+moran.test(dstat_filtered_3$residuals, lw2)
+
+
+# AIC for comparison
+
+AIC(spaMM_prop_A) # conditional AIC (cAIC) 
+
+
+# Compare spaMM with and without nest size using anova (likelihood ratio) 
+
+model_null_1 <- fitme(cbind(Infected, Uninfected) ~ Matern(1 | x + y), 
+                    family = binomial(), data = dstat_filtered_3)
+
+model_full_1 <- fitme(cbind(Infected, Uninfected) ~ A_m2 + Matern(1 | x + y), 
+                    family = binomial(), data = dstat_filtered_3)
+
+anova(model_null_1, model_full_1)
+
+``` 
+
+
+#######################################################################
+### 3. Model 3 - control: is nest size itself spatially structured? ###
+#######################################################################
+
+```{r}
+
+# 3.a. Model without spatial analysis
+#####################################
+
+# Remove rows without nest size values
+
+dstat_filtered_4 <- dstat %>%
+  filter(!is.na(A_m2))
+
+# Fit GLS model
+
+GLS_controle_1 <- gls(A_m2 ~ 1, data = dstat_filtered_4)
+
+summary(GLS_controle_1)
+
+dstat_filtered_4$residuals <- residuals(GLS_controle_1, type = "pearson") # Check residuals
+
+
+# Moran's I test
+
+coords5 <- as.matrix(dstat_filtered_4[, c("x", "y")])
+nb5 <- knn2nb(knearneigh(coords5, k = 4)) 
+lw5 <- nb2listw(nb5, style = "W")
+
+moran.test(dstat_filtered_4$residuals, lw5)
+
+
+# 3.b. Model with spatial analysis
+##################################
+
+# Remove rows without nest size values
+
+dstat_filtered_5 <- dstat %>%
+  filter(!is.na(A_m2))
+
+# Fit GLS model
+
+GLS_controle_2 <- gls(A_m2 ~ 1, data = dstat_filtered_5, 
+                   correlation = corExp(form = ~ x + y, nugget = TRUE))
+
+summary(GLS_controle_2)
+
+dstat_filtered_5$residuals <- residuals(GLS_controle_2, type = "pearson") # Check residuals
+
+
+# Moran's I test
+
+coords6 <- as.matrix(dstat_filtered_5[, c("x", "y")])
+nb6 <- knn2nb(knearneigh(coords6, k = 4)) 
+lw6 <- nb2listw(nb6, style = "W")
+
+moran.test(dstat_filtered_5$residuals, lw6)
+
+# 3.c. Comparison of both models
+################################
+
+anova(GLS_controle_1, GLS_controle_2)
+
+``` 
+
+
